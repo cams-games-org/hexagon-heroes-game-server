@@ -8,19 +8,28 @@ using HexHeroes.Streamables;
 using HexHeroes.Utility;
 using Unity.Collections;
 using System;
+using UnityTransportStreamExtensions;
+using HexHeroes.Users;
 
 public class GsClientBehaviour : MonoBehaviour, IMessageSender
 {
     public static GsClientBehaviour instance;
     public NetworkDriver m_ClientDriver;
     public NetworkConnection m_ClientConnection;
-    private StreamReader streamReader;
+    private MainStreamReader streamReader;
     private GameServerUpdateableObjectManager updateableObjectManager;
     public string gameServerIdentifier;
     public string gameServerSecret;
     public string serverSuppliedToken;
     public string gameServerSuppliedToken;
     public ushort serverPort;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void Init()
+    {
+        instance = null;
+        ServerUserManager.ClearInstance();
+    }
 
     public void Awake()
     {
@@ -78,7 +87,7 @@ public class GsClientBehaviour : MonoBehaviour, IMessageSender
     // Start is called before the first frame update
     void Start()
     {
-        streamReader = new StreamReader();
+        streamReader = new MainStreamReader();
         m_ClientDriver = NetworkDriver.Create();
         m_ClientConnection = default(NetworkConnection);
         NetworkEndPoint clientEndpoint = NetworkEndPoint.LoopbackIpv4;

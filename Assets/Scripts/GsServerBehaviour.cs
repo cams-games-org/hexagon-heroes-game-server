@@ -1,5 +1,6 @@
+using HexagonHeroes_GameLibrary;
+using HexagonHeroes_GameLibrary.Messages;
 using HexHeroes.Lobbies;
-using HexHeroes.Messaging;
 using HexHeroes.Messaging.Messages;
 using HexHeroes.Streamables;
 using HexHeroes.Users;
@@ -10,21 +11,30 @@ using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Networking.Transport;
 using UnityEngine;
+using UnityTransportStreamExtensions;
 
 public class GsServerBehaviour : MonoBehaviour
 {
     public static GsServerBehaviour instance;
     public NetworkDriver m_ServerDriver;
     public NetworkConnection m_ServerConnection;
-    private StreamReader streamReader;
-    private NativeHashMap<int, NetworkConnection> m_ServerConnections;
-    public NativeHashMap<int, FixedString64Bytes> serverSuppliedTokens;
-    public NativeHashMap<int, FixedString64Bytes> clientSuppliedTokens;
+    private GameStreamReader streamReader;
+    private NativeParallelHashMap<int, NetworkConnection> m_ServerConnections;
+    public NativeParallelHashMap<int, FixedString64Bytes> serverSuppliedTokens;
+    public NativeParallelHashMap<int, FixedString64Bytes> clientSuppliedTokens;
     private NativeList<int> connsToTerminate;
     private int maxConnections;
     private ServerUserManager serverUserManager;
     private bool running;
     private GameSettings gameSettings;
+    private bool matchStarted = false;
+    private InboundActionHandler inboundActionHandler;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void Init()
+    {
+        instance = null;
+    }
 
     public void Awake()
     {
@@ -45,10 +55,11 @@ public class GsServerBehaviour : MonoBehaviour
         serverSuppliedTokens.Dispose();
         clientSuppliedTokens.Dispose();
         connsToTerminate.Dispose();
+        m_ServerDriver.Dispose();
         ServerUserManager.DisposeAllNatives();
     }
 
-    public void OnDestroy()
+    public void OnDisable()
     {
         DisposeAllNatives();
     }
@@ -117,6 +128,35 @@ public class GsServerBehaviour : MonoBehaviour
         connsToTerminate.Add(connID);
     }
 
+    private void CheckForGameStart()
+    {
+        if (ServerUserManager.CountGameLoadedUsers() == ServerUserManager.Count && ServerGameStarter.IsMapGenerated && !matchStarted)
+        {
+            matchStarted = true;
+            StartCoroutine(BeginInitiateGameStart());
+        }
+    }
+
+    private IEnumerator BeginInitiateGameLoad()
+    {
+        yield return new WaitForSeconds(2);
+        InitiateGameLoadMessage iglm = new InitiateGameLoadMessage();
+        iglm.gameSettings = gameSettings.ToGameSettingsContainer();
+        Debug.Log(string.Format("Game settings container, contains {0} players.", iglm.gameSettings.playerContainers.Length));
+        SendMessageToAll(iglm);
+        ServerGameStarter.PrepareGameScene(gameSettings.ToGameSettingsContainer());
+        yield return new WaitUntil(() => ServerGameStarter.IsMapGenerated);
+        CheckForGameStart();
+    }
+
+    private IEnumerator BeginInitiateGameStart()
+    {
+        yield return new WaitForSeconds(2);
+        StartGameMessage sgm = new StartGameMessage();
+        SendMessageToAll(sgm);
+        ServerGameStarter.StartGame();
+    }
+
     private void CheckForEvents()
     {
         DataStreamReader stream;
@@ -146,6 +186,7 @@ public class GsServerBehaviour : MonoBehaviour
                                 break;
                             }
                         }
+                        ServerUserInstance userInstance;
                         switch (message.MessageType)
                         {
                             default:
@@ -169,7 +210,7 @@ public class GsServerBehaviour : MonoBehaviour
                                     SendMessage(ocrm, connID);
                                     return;
                                 }
-                                ServerUserInstance userInstance = ServerUserManager.GetUserInstance(userIdFound);
+                                userInstance = ServerUserManager.GetUserInstance(userIdFound);
                                 FixedString512Bytes verificationString = SecurityUtility.GenerateGameServerChallengeString(userInstance.gameServerChallenge.ToString(), userInstance.mainServerSuppliedToken.ToString(), serverSuppliedTokens[connID].ToString(), crm.clientSuppliedToken.ToString());
                                 if(verificationString != crm.verificationString)
                                 {
@@ -181,14 +222,22 @@ public class GsServerBehaviour : MonoBehaviour
                                 ocrm.success = 0;
                                 SendMessage(ocrm, connID);
                                 Debug.Log("Accepted the users challenge.");
-                                userInstance.connID = connID;
-                                userInstance.connected = true;
+                                ServerUserManager.ConfirmUserConnection(userIdFound, connID);
                                 if(ServerUserManager.CountConnectedUsers() == ServerUserManager.Count)
                                 {
-                                    InitiateGameLoadMessage iglm = new InitiateGameLoadMessage();
-                                    iglm.gameSettings = gameSettings;
-                                    SendMessageToAll(iglm);
+                                    StartCoroutine(BeginInitiateGameLoad());
                                 }
+                                break;
+                            case MessageTypes.LoadComplete:
+                                LoadCompleteMessage lcm = (LoadCompleteMessage)message;
+                                int userID = ServerUserManager.GetUsersServerIDFromConnection(lcm.connID);
+                                userInstance = ServerUserManager.GetUserInstance(userID);
+                                userInstance.gameLoaded = true;
+                                CheckForGameStart();
+                                break;
+                            case MessageTypes.GameAction:
+                                GameActionMessage gam = (GameActionMessage)message;
+                                InboundActionHandler.QueueAction(gam.gameAction);
                                 break;
                         }
                     }
@@ -227,7 +276,7 @@ public class GsServerBehaviour : MonoBehaviour
             serverSuppliedTokens.Add(connID, serverSuppliedToken);
 
             Debug.Log("Accepted a connection");
-            OnConnectionMessage ocm = new OnConnectionMessage();
+            HexagonHeroes_GameLibrary.Messages.OnConnectionMessage ocm = new HexagonHeroes_GameLibrary.Messages.OnConnectionMessage();
             ocm.serverSuppliedToken = serverSuppliedToken;
             SendMessage(ocm, connID);
         }
@@ -258,10 +307,10 @@ public class GsServerBehaviour : MonoBehaviour
     public OnGameServerStartedMessage StartServer(StartGameServerMessage sgsm)
     {
         OnGameServerStartedMessage ogssm = new OnGameServerStartedMessage();
-        ogssm.userChallenges = new NativeHashMap<int, FixedString64Bytes>(sgsm.users.Count, Allocator.Temp);
+        ogssm.userChallenges = new NativeParallelHashMap<int, FixedString64Bytes>(sgsm.users.Count, Allocator.Temp);
         maxConnections = sgsm.users.Count;
         Debug.Log("Starting Server!");
-        streamReader = new StreamReader();
+        streamReader = new GameStreamReader();
         m_ServerDriver = NetworkDriver.Create();
         NetworkEndPoint endpoint = NetworkEndPoint.AnyIpv4;
         endpoint.Port = GsClientBehaviour.instance.serverPort;
@@ -275,9 +324,9 @@ public class GsServerBehaviour : MonoBehaviour
         {
             m_ServerDriver.Listen();
         }
-        m_ServerConnections = new NativeHashMap<int, NetworkConnection>(maxConnections, Allocator.Persistent);
-        serverSuppliedTokens = new NativeHashMap<int, FixedString64Bytes>(maxConnections, Allocator.Persistent);
-        clientSuppliedTokens = new NativeHashMap<int, FixedString64Bytes>(maxConnections, Allocator.Persistent);
+        m_ServerConnections = new NativeParallelHashMap<int, NetworkConnection>(maxConnections, Allocator.Persistent);
+        serverSuppliedTokens = new NativeParallelHashMap<int, FixedString64Bytes>(maxConnections, Allocator.Persistent);
+        clientSuppliedTokens = new NativeParallelHashMap<int, FixedString64Bytes>(maxConnections, Allocator.Persistent);
         connsToTerminate = new NativeList<int>(Allocator.Persistent);
         serverUserManager = new ServerUserManager(maxConnections);
 
@@ -287,7 +336,13 @@ public class GsServerBehaviour : MonoBehaviour
             FixedString64Bytes challenge = SecurityUtility.GenerateRandom(32);
             ogssm.userChallenges.Add(sharedUserInstance.userID, challenge);
             ServerUserManager.GetUserInstance(sharedUserInstance.userID).gameServerChallenge = challenge;
-
+        }
+        foreach(PlayerDetails pd in sgsm.gameSettings.playerDetails)
+        {
+            if (pd.playerType == 0)
+            {
+                ServerUserManager.AssignUserPlayerIndex(pd.userID, pd.playerIndex);
+            }
         }
         ogssm.success = 0;
         ogssm.lobbyID = sgsm.lobbyID;
