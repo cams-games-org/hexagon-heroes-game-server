@@ -1,6 +1,7 @@
 using HexagonHeroes_GameLibrary;
 using HexagonHeroes_GameLibrary.GameEvents;
-using HexagonHeroes_GameLibrary.MapScripts;
+using HexagonHeroes_GameLibrary.BaseTypes;
+using HexagonHeroes_GameLibrary.GameDataContainers;
 using HexagonHeroes_GameLibrary.Messages;
 using HexHeroes.Users;
 using System.Collections;
@@ -10,6 +11,15 @@ using UnityEngine;
 public class ServerPlayerProxy : PlayerProxy
 {
     int connID;
+
+    public override void BeginNextTick(int tickNumber, List<GameEvent> events)
+    {
+        NextTickMessage nextTickMessage = new NextTickMessage();
+        nextTickMessage.simulationStep = tickNumber;
+        nextTickMessage.gameEvents = events;
+        GsServerBehaviour.instance.SendMessage(nextTickMessage, connID);
+    }
+
     public override void Initialize(PlayerContainer playerContainer)
     {
         connID = ServerUserManager.GetUserFromPlayerIndex(playerContainer.playerIndex).connID;

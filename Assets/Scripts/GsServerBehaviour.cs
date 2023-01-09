@@ -29,6 +29,8 @@ public class GsServerBehaviour : MonoBehaviour
     private GameSettings gameSettings;
     private bool matchStarted = false;
     private InboundActionHandler inboundActionHandler;
+    [SerializeField]
+    private MasterSimulationManager masterSimulationManager;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     static void Init()
@@ -102,7 +104,6 @@ public class GsServerBehaviour : MonoBehaviour
             ((ISecureMessage)m).SerializeSecurityToStream(ref stream, connID);
         }
         stream.WriteInt(-1);
-        Debug.Log(string.Format("Wrote {0} bytes to stream", stream.Length));
         m_ServerDriver.EndSend(stream);
     }
 
@@ -164,13 +165,20 @@ public class GsServerBehaviour : MonoBehaviour
         for (int i = 0; i < connIDs.Length; i++)
         {
             int connID = connIDs[i];
+            int userID =-1;
+            ServerUserInstance userInstance = null;
+            if (ServerUserManager.IsConnectionCarryingUser(connID))
+            {
+                userID = ServerUserManager.GetUsersServerIDFromConnection(connID);
+                userInstance = ServerUserManager.GetUserInstance(userID);
+            }
+            
             NetworkConnection connection = m_ServerConnections[connID];
             if (!m_ServerConnections[connID].IsCreated)
                 continue;
             NetworkEvent.Type cmd;
             while ((cmd = m_ServerDriver.PopEventForConnection(connection, out stream)) != NetworkEvent.Type.Empty)
             {
-                Debug.Log(string.Format("Received {0} bytes of data", stream.Length));
                 if (cmd == NetworkEvent.Type.Data)
                 {
 
@@ -186,7 +194,6 @@ public class GsServerBehaviour : MonoBehaviour
                                 break;
                             }
                         }
-                        ServerUserInstance userInstance;
                         switch (message.MessageType)
                         {
                             default:
@@ -230,8 +237,6 @@ public class GsServerBehaviour : MonoBehaviour
                                 break;
                             case MessageTypes.LoadComplete:
                                 LoadCompleteMessage lcm = (LoadCompleteMessage)message;
-                                int userID = ServerUserManager.GetUsersServerIDFromConnection(lcm.connID);
-                                userInstance = ServerUserManager.GetUserInstance(userID);
                                 userInstance.gameLoaded = true;
                                 CheckForGameStart();
                                 break;
@@ -239,6 +244,12 @@ public class GsServerBehaviour : MonoBehaviour
                                 GameActionMessage gam = (GameActionMessage)message;
                                 InboundActionHandler.QueueAction(gam.gameAction);
                                 break;
+                            case MessageTypes.AffirmTickOver:
+                                AffirmTickOverMessage atom = (AffirmTickOverMessage)message;
+                                int playerIndex = ServerUserManager.GetUserInstance(userID).playerIndex;
+                                masterSimulationManager.ConfirmTickProcessed(playerIndex, atom.simulationStep);
+                                break;
+
                         }
                     }
                     if (connsToTerminate.Contains(connID))

@@ -1,11 +1,17 @@
 {
   "dependencies": {
+    "com.cams-games-org.hexagon-heroes.game-library": {
+      "version": "file:D:/Cameron/Unity Projects/HexHeroes_Libraries/HexHeroes_Packages/Packages/com.cams-games-org.hexagon-heroes.game-library",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "com.camsgamesorg.scriptableassetdatabase": {
       "version": "https://github.com/cams-games-org/unity-scriptable-asset-database.git?path=/Packages/com.camsgamesorg.scriptableassetdatabase",
       "depth": 0,
       "source": "git",
       "dependencies": {},
-      "hash": "9ba1b8c45d99fc0e50e10494ba058325b598b671"
+      "hash": "7f7b22aaf4620df773faa9da7aa63d5a83d532b5"
     },
     "com.gamesgamesorg.hexagonheroesscriptableassetdatabase": {
       "version": "file:D:/Cameron/Unity Projects/HexHeroes_Libraries/HexHeroes_Packages/Packages/com.camsgamesorg.hexagonheroesscriptableassetdatabase",

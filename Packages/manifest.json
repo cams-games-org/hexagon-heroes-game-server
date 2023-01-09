@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "com.cams-games-org.hexagon-heroes.game-library": "file:D:/Cameron/Unity Projects/HexHeroes_Libraries/HexHeroes_Packages/Packages/com.cams-games-org.hexagon-heroes.game-library",
     "com.camsgamesorg.scriptableassetdatabase": "https://github.com/cams-games-org/unity-scriptable-asset-database.git?path=/Packages/com.camsgamesorg.scriptableassetdatabase",
     "com.gamesgamesorg.hexagonheroesscriptableassetdatabase": "file:D:/Cameron/Unity Projects/HexHeroes_Libraries/HexHeroes_Packages/Packages/com.camsgamesorg.hexagonheroesscriptableassetdatabase",
     "com.unity.entities": "0.51.0-preview.32",
